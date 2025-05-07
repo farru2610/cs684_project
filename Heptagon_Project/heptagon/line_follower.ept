@@ -1,0 +1,320 @@
+(* Constants for line following and obstacle avoidance *)
+const kp: int = 1
+const ki: int = 100
+const kd: int = 15
+
+
+const kpB: int = 1
+const kiB: int = 100
+const kdB: int = 15
+
+
+const left_turn_speed: int = 80
+const right_turn_speed: int = 80
+
+
+(* Simple PID controller for line following using five sensors *)
+node pid(sen0, sen1, sen2, sen3, sen4: int) returns (v_l, v_r: int)
+  var error, i, p, d, temp, out: int;
+  let
+	error = sen1 - sen3;
+	p = error;
+	i = 0 -> (pre(i) + error);
+	d = error - (0 -> pre(error));
+	temp = (p / kp) + (i / ki) + (d * kd);
+	out = if (temp < 0) then -10
+      else if (temp > 0) then 10 
+	  else 0;
+	v_l = if (out = 0) then 60 else (40 - out);
+	v_r = if (out = 0) then 60 else (40 + out);
+  tel
+
+node pidBlack(sen0, sen1, sen2, sen3, sen4: int) returns (v_l, v_r: int)
+  var error, i, p, d, temp, out: int;
+  let
+	error = sen1 - sen3;
+	p = error;
+	i = 0 -> (pre(i) + error);
+	d = error - (0 -> pre(error));
+	temp = ((p / kpB) + (i / kiB) + (d * kdB))*10/20;
+	out = if (temp < 0) then -10
+      else if (temp > 0) then 10 
+	  else 0;
+	v_l = (if (out = 0) then 60 else (40 - out));
+	v_r = (if (out = 0) then 60 else (40 + out));
+  tel
+
+
+
+(* Modified Obstacle avoidance routine using two IR sensors (reactive) *)
+node obstacle_avoid(obs_left: bool; ir_front_left: int; sen: int^5)
+	returns (v_l, v_r, dir: int)
+let
+  automaton
+
+	(* 1 If front sensors are triggered => Turn Right sharply *)
+	state FrontDetected
+	do
+  	v_l = 30;
+  	v_r = 30;
+  	dir = 45;   	(* “sharp right” code *)
+	until obs_left then GoRight
+  	 
+	(* 2 Go straight while the obstacle is on the left sensor (obs_left=true).
+   	Once obs_left becomes false => front face is cleared. *)
+	state GoRight
+	do
+  	v_l = 20;
+  	v_r = 50;
+  	dir = 1;    	(* forward *)
+	until not obs_left and ir_front_left=0 then GoLeft
+    	| (sen[1] < 500 or sen[2] < 500 or sen[3] < 500 or sen[4] < 500 or sen[0] < 500) then Done
+
+	state GoLeft
+	do
+  	v_l = 40;
+  	v_r = 20;
+  	dir = 1;    	(* forward *)
+	until obs_left or (ir_front_left=1) then GoRight
+    	| (sen[1] < 500 or sen[2] < 500 or sen[3] < 500 or sen[4] < 500 or sen[0] < 500) then Done
+
+
+	(* 7 Done: Obstacle fully bypassed. *)
+	state Done
+	do
+  	v_l = 30;
+  	v_r = 55;
+  	dir = 100;   	(* code “9” => brake/done *)
+	until sen[4]>500 and sen[3]>500 and sen[0]>500 and sen[1]>500 and sen[2]>500 then BackOneLine
+
+	state BackOneLine
+	do
+    	v_l = 50;
+    	v_r = 50;
+    	dir = 4;
+	unless sen[4]<500 or sen[3]<500 then Exit
+
+	state Exit
+    	do
+     	v_l=0; v_r=0; dir=9;
+  end
+tel
+
+
+(* Main node combining line following with obstacle avoidance and line switching *)
+node main(sen0, sen1, sen2, sen3, sen4, ir_front_left, ir_front_right: int; obs_left, obs_right, sec: bool) returns (v_l, v_r, dir: int)
+  var sen: int^5;
+  last count:int = 0;
+  last bound_left:int=0;
+  last bound_right:int=0;
+  (* var sum: int; *)
+  let
+	automaton
+  	state White
+    	do
+      	(* Use white-line processing: reverse sensor values *)
+      	sen = [1023 - sen0, 1023 - sen1, 1023 - sen2, 1023 - sen3, 1023 - sen4];
+      	automaton
+        	state Forward
+          	do
+            	dir = 1;  (* Forward *)
+            	v_l = 80; v_r = 80;
+          	unless (sen[1] < 500 or sen[3] < 500) then Pid
+          	| (sen[0] < 500) then Goleft
+          	| (sen[4] < 500) then Goright
+        	state Goright
+          	do
+            	dir = 4;  (* Turning right *)
+            	v_l = right_turn_speed; v_r = right_turn_speed;
+          	unless (sen[1] < 500 or sen[3] < 500) then Pid
+          	| sen[0] < 500 then Goleft
+        	state Goleft
+          	do
+            	dir = 3;  (* Turning left *)
+            	v_l = left_turn_speed; v_r = left_turn_speed;
+          	unless (sen[1] < 500 or sen[3] < 500) then Pid
+          	| sen[4] < 500 then Goright
+        	state Pid
+          	do
+            	dir = 2;  (* PID-based correction *)
+            	(v_l, v_r) = pid(sen[0], sen[1], sen[2], sen[3], sen[4]);
+          	unless (sen[0] < 500) then Goleft
+          	| (sen[4] < 500) then Goright
+        	(*state Stop
+          	do
+            	dir = 0;  -- Stop
+            	v_l = 0; v_r = 0;
+          	unless (sen[1] < 500 or sen[3] < 500) then Pid
+          	| (sen[0] < 500) then Goleft
+          	| (sen[4] < 500) then Goright *)
+      	end
+    	(* Switch to Black branch when the white sensors indicate the horizontal black line *)
+    	unless ((sen0 > 500 and sen4 > 500) and (sen1 < 500 or sen2 < 500 or sen3 < 500)) then Black
+  	state Black
+    	do
+      	sen = [sen0, sen1, sen2, sen3, sen4];
+      	(* sum = sen[0] + sen[1] + sen[2] + sen[3] + sen[4]; *)
+      	automaton
+        	state Forward
+          	do
+            	(* In Black branch, check for obstacles first *)
+          	 
+            	dir = 1;  (* Forward *)
+            	v_l = 80; v_r = 80;
+          	unless  (ir_front_left = 1 or ir_front_right = 1) then Obstacle
+        	| (sen[1]<500 and sen[2]<500 and sen[3]<500) or (sen[1]<500 and sen[2]<500 and sen[0]<500) or (sen[4]<500 and sen[2]<500 and sen[3]<500) then Intersection
+          	| (sen[1] < 500 or sen[3] < 500) then Pid
+          	| (sen[0] < 500) then Goleft
+          	| (sen[4] < 500) then Goright
+          	state Goright
+          	do
+           	 
+            	dir = 4;  (* Turning right *)
+            	v_l = right_turn_speed; v_r = right_turn_speed;
+          	unless (ir_front_left = 1 and ir_front_right = 1) then Obstacle
+        	| (sen[1]<500 and sen[2]<500 and sen[3]<500) or (sen[1]<500 and sen[2]<500 and sen[0]<500) or (sen[4]<500 and sen[2]<500 and sen[3]<500) then Intersection
+        	| (sen[1] < 500 or sen[3] < 500) then Pid
+          	| sen[0] < 500 then Goleft
+          	state Goleft
+          	do
+           	 
+            	dir = 3;  (* Turning left *)
+            	v_l = left_turn_speed; v_r = left_turn_speed;
+          	unless (ir_front_left = 1 or ir_front_right = 1) then Obstacle
+        	| (sen[1]<500 and sen[2]<500 and sen[3]<500) or (sen[1]<500 and sen[2]<500 and sen[0]<500) or (sen[4]<500 and sen[2]<500 and sen[3]<500) then Intersection
+        	| (sen[1] < 500 or sen[3] < 500) then Pid
+          	| sen[4] < 500 then Goright
+         	 
+        	state Pid
+          	do
+          	 
+            	dir = 2;  (* PID-based correction *)
+            	(v_l, v_r) = pidBlack(sen[0], sen[1], sen[2], sen[3], sen[4]);
+          	unless (ir_front_left = 1 or ir_front_right = 1) then Obstacle
+        	| (sen[1]<500 and sen[2]<500 and sen[3]<500) or (sen[1]<500 and sen[2]<500 and sen[0]<500) or (sen[4]<500 and sen[2]<500 and sen[3]<500) then Intersection
+        	|(sen[0] < 500) then Goleft
+          	| (sen[4] < 500) then Goright
+         	 
+       	 
+       	 
+        	state Stop
+          	var time: int;
+          	do
+           	 
+            	time = 2 -> if(sec) then pre(time) - 1 else pre(time);
+            	dir = 0;
+            	v_l = 0; v_r = 0;
+          	until (time=0) then Parking
+        	unless (ir_front_left = 1 or ir_front_right = 1) then Obstacle
+        	state Parking
+        	do
+           	automaton
+           	state Start
+                	var time:int;
+                    	do
+                    	dir = 2;
+                    	bound_left = (last bound_left)+ (if(obs_left=true) then 1 else 0);
+                    	bound_right = (last bound_right)+ (if(obs_right=true) then 1 else 0);
+                    	time= 4->if(sec) then pre(time)-1 else pre(time);
+                    	(v_l,v_r) = pidBlack(sen[0], sen[1], sen[2], sen[3], sen[4]);
+                	until (time=0) then Check
+                	state Check
+                    	do
+                    	v_l=0; v_r=0; dir=0;
+                	until (bound_left=0) then Goleft
+                    	|(bound_right=0) then Goright
+                    	| true then Restart
+                	state Goleft
+                	var time:int;
+                    	do
+                    	v_l=0; v_r=0; dir=0;
+                    	time= 2->if(sec) then pre(time)-1 else pre(time);
+                	until (time=0) then Parkleft
+               	 
+                	state Goright
+                    	var time:int;
+                    	do
+                    	v_l=0; v_r=0; dir=0;
+                    	time= 2->if(sec) then pre(time)-1 else pre(time);
+                	until (time=0) then Parkright
+                   	 
+                	state Restart
+                	var time:int;
+                    	do
+                    	(*time= 2->if(sec) then pre(time)-1 else pre(time); *)
+                    	bound_left=0; bound_right=0;
+                    	v_l=0; v_r=0; dir=0;
+                	until true then Start
+               	 
+                	state Parkright
+                	var time:int;
+                    	do
+                    	v_l=40; v_r=63; dir=5;
+                    	time= 2->if(sec) then pre(time)-1 else pre(time);
+                	until (time<=0) then Final
+               	 
+                	state Parkleft
+                	var time:int;
+                    	do
+                    	v_l=63; v_r=40; dir=6;
+                    	time= 2->if(sec) then pre(time)-1 else pre(time);
+                	until (time<=0) then Final
+               	 
+                	state Final
+                    	do
+                    	v_l=0; v_r=0; dir=9;
+        	end  
+        	state Obstacle
+          	do
+           	(* Call the reactive obstacle avoidance routine *)
+        	(v_l, v_r, dir) = obstacle_avoid(obs_left, ir_front_left, sen);
+        	until (dir=9) then Pid
+          	state Intersection
+        	do
+                automaton
+            	state Counter
+            	do
+            	dir=2;
+            	v_l=40;
+            	v_r=40;
+            	count=(last count) +1;
+            	until true then Forward
+            	state Forward
+            	do
+                	dir=1;
+                	v_l=40;
+                	v_r=40;
+            	until (sen[0]>=500 and sen[1]>=500 and sen[2]>=500 and sen[3]>=500 and sen[4]>=500) and (count = 1 or count = 2) then RightTurn
+
+            	|  ((sen[0] <= 500 and sen[1] >= 500 and sen[2] >=500 and sen[3] >= 500 and sen[4] >= 500) or (sen[1] <= 500 and sen[0] >= 500 and sen[2] >= 500 and sen[3] >= 500 and sen[4] >= 500) or (sen[2] <= 500 and sen[0] >= 500 and sen[1] >= 500 and sen[3] >= 500 and sen[4] >= 500) or (sen[3] <= 500 and sen[0] >= 500 and sen[1] >= 500 and sen[2] >= 500 and sen[4] >= 500) or (sen[4] <= 500 and sen[0] >= 500 and sen[1] >= 500 and sen[2] >= 500 and sen[3] >= 500)) and (count=3 or count=4) then LeftTurn
+
+            	| ((sen[0] <= 500 and sen[1] >= 500 and sen[2] >=500 and sen[3] >= 500 and sen[4] >= 500) or (sen[1] <= 500 and sen[0] >= 500 and sen[2] >= 500 and sen[3] >= 500 and sen[4] >= 500) or (sen[2] <= 500 and sen[0] >= 500 and sen[1] >= 500 and sen[3] >= 500 and sen[4] >= 500) or (sen[3] <= 500 and sen[0] >= 500 and sen[1] >= 500 and sen[2] >= 500 and sen[4] >= 500) or (sen[4] <= 500 and sen[0] >= 500 and sen[1] >= 500 and sen[2] >= 500 and sen[3] >= 500)) and (count=5) then Halt
+				
+            	state RightTurn
+            	do
+            	dir=4;
+            	v_l=40;
+            	v_r=40;
+            	until sen[4]<500 or sen[3]<500 then Final
+            	state LeftTurn
+            	do
+            	dir=3;
+            	v_l=60;
+            	v_r=60;
+            	until sen[0]<500 then Final
+            	state Halt
+            	do
+                	dir = 0;
+                	v_l = 0; v_r = 0;
+
+            	state Final
+            	do
+                	dir=90;
+                	v_l=0; v_r=0;
+        	end
+        	until dir=90 then Forward
+        	| dir=0 then  Stop
+
+      	end
+	end
+tel
