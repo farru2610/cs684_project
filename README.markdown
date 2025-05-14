@@ -8,8 +8,6 @@ This project implements a line-following robot controller in the **Heptagon** sy
 - [Requirements](#requirements)
 - [Setup Instructions](#setup-instructions)
 - [Usage](#usage)
-- [Limitations](#limitations)
-- [Future Improvements](#future-improvements)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -146,22 +144,6 @@ The project is implemented in a single Heptagon file (`line_follower.ept`) with 
 - **Debugging**:
   - Use the `dir` output (1=forward, 2=PID, 3=left, 4=right, 5=park right, 6=park left, 9=stop, etc.) to monitor state transitions.
   - Log sensor values to verify line and obstacle detection.
-
-## Limitations
-- **Hardcoded Parameters**: PID constants, motor speeds, and timing values are fixed, requiring manual adjustment for different tracks or robots.
-- **Sensor Range**: Assumes line sensors output 0–1023, with a threshold of 500. Different sensors may require recalibration.
-- **Obstacle Avoidance**: Reactive and simplistic, may fail for complex obstacle patterns (e.g., multiple obstacles).
-- **Intersection Logic**: Predefined turn sequence (right, right, left, left, halt) limits flexibility for dynamic tracks.
-- **Parking**: Relies on obstacle sensor counts, which may be unreliable in noisy environments.
-- **No Simulation**: Lacks a simulation environment to test without hardware.
-
-## Future Improvements
-- **Dynamic PID Tuning**: Implement adaptive PID parameters based on track conditions.
-- **Advanced Obstacle Avoidance**: Use path planning or additional sensors (e.g., ultrasonic) for robust navigation.
-- **Configurable Intersections**: Allow user-defined turn sequences via external input or configuration.
-- **Simulation Environment**: Integrate with a simulator (e.g., Webots) to test the Heptagon code virtually.
-- **Sensor Calibration**: Add a calibration node to handle varying sensor ranges and thresholds.
-- **Error Handling**: Include states for sensor failures or unexpected track conditions (e.g., no line detected).
 
 ## Contributing
 Contributions are welcome! To contribute:
