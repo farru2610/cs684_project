@@ -1,6 +1,6 @@
 # Line-Following Robot with Obstacle Avoidance and Parking
 
-This project implements a line-following robot controller in the **Heptagon** synchronous programming language. The robot navigates white and black lines, switches between them, avoids obstacles, handles intersections, and performs parking maneuvers using PID control for precise line tracking. Designed for a robotics course, it showcases reactive and state-based control for autonomous navigation.
+This project implements a line-following robot controller in the **Heptagon** synchronous programming language. The robot navigates white and black lines, switches between them, avoids obstacles, handles intersections, and performs parking maneuvers using PID control for precise line tracking. Designed for CS684 Embedded Systems course, it showcases reactive and state-based control for autonomous navigation.
 
 ## Table of Contents
 - [Overview](#overview)
